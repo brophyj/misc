@@ -1,0 +1,10 @@
+magrittr
+cmdstanr
+bayesplot
+Matrix
+posterior
+ggplot2
+dplyr
+tibble
+ggthemes
+robvis

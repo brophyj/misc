@@ -1,0 +1,215 @@
+---
+title: "Journal Club"
+author: "Jay Brophy MD PhD"
+institute: "Departments of Medicine, Epidemiology and Biostatistics, McGill University"
+date: "2025/02/26 (updated: `r Sys.Date()`)"
+format: 
+  revealjs:
+    theme: [simple, custom.css]
+    slide-number: true
+    footer: "Academic half day - journal club"
+    echo: true
+    logo: images/mcgill_logo.png
+    scrollable: true
+    self-contained: true
+    default-slide-attributes:
+      data-vertical-align: middle
+      data-align: center
+  pdf:
+    documentclass: beamer
+  html:
+    theme: united
+    css: custom.css
+editor: visual 
+bibliography: bib.bib
+---
+
+```{r echo=FALSE, message = FALSE, warning = FALSE}
+
+library(here)
+library(knitr)
+library(broom)
+library(xaringanthemer)
+library(rstanarm)
+library(haven)
+library(tidyverse)
+library(distributional)
+library(janitor)
+library(ggdist)
+library(ggdist)
+library(patchwork)
+library(bayesmeta)
+library(tidybayes)
+library(distributional)
+library(cmdstanr)
+library(brms)
+library(modelsummary)
+set.seed(1234)
+
+
+```
+
+
+## How to be a good critic of published article {.center}
+
+- be a critical reader\
+- show your critique to be "tenable"\  
+- remember ATOM (“Accept uncertainty. Be thoughtful, open, and modest.”)
+
+## What to avoid {.center}
+- [Hit-and-run criticism:]{style="color:red"} Pointing out flaws without providing alternative explanations.\    
+- [Dogmatic criticism:]{style="color:red"} Relying on rigid principles (e.g., all unblinded RCTs are biased).\    
+- [Speculative criticism:]{style="color:red"} Offering untested alternative explanations.\    
+- [Tubular criticism:]{style="color:red"} Ignoring evidence that contradicts the critique.
+
+## Article # 1
+
+Recent [NEJM publication](https://www.nejm.org/doi/full/10.1056/NEJMoa2405880) - Transcatheter Aortic-Valve Replacement for Asymptomatic Severe Aortic Stenosis  
+\     
+\    
+[METHODS]{style="color:red"} At 75 centers in the United States and Canada, we randomly assigned, in a 1:1 ratio, patients with asymptomatic severe aortic stenosis to undergo early transcatheter aortic-valve replacement (TAVR) with transfemoral placement of a balloon-expandable valve or clinical surveillance. The primary end point was a composite of death, stroke, or unplanned hospitalization for cardiovascular causes. Superiority testing was performed in the intention-to-treat population. 
+
+[CONCLUSIONS]{style="color:red"} Among patients with asymptomatic severe aortic stenosis, a strategy of early TAVR was superior to clinical surveillance in reducing the incidence of death, stroke, or unplanned hospitalization for cardiovascular causes. (Funded by Edwards Lifesciences; EARLY TAVR ClinicalTrials.gov number, NCT03042104
+
+## Results {.center}
+
+![](images/early1.png){fig-align="centered" width=80%}
+\      
+Primary outcome (top left) composite of death, stroke, and unplanned cardiac hospitalization
+
+## Criticism {.center}
+
+[Trial criticized for being unblinded](https://www.sensible-med.com/p/the-early-tavr-trial-exposes-the?utm_source=publication-search&utm_medium=email) but evidence to support this criticism has been lacking\
+
+::: fragment
+Let's look closer at the results and do some simulations 
+![](images/my_early1.png){width=70% fig-align="centered"}
+
+:::
+
+## Kaplan Meier Simulation {.center}
+
+Approximating cumulative incidence to time to event data to perform Cox model analysis 
+
+Simulated HR = 0.53, 95% CI 0.43, 0.66 reasonably close to published HR 0.50, 95% 0.40, 0.63  
+
+![](images/Sim_KM_all.png){fig-align="centered"}
+
+## The missing analysis and figure  {.center}
+Kaplan Meier Simulation Landmark Analysis
+![](images/Sim_KM_landmark.png){fig-align="center" width="60%"}
+
+[HR = 0.81 (95% CI 0.61, 1.07) p =0.14, IOW no benefit after 1 year]{style="color:red"}
+
+## Is bias due to unblindness a **tenable** explanation? {.center}
+
+Decision to seek medical care and the decision for hospitalization both have subjective components. There are 4 possible ways unbindedness could contribute to differences in hospitalizations.   
+
+::: nonincremental
+i)  patients in the clinical surveillance group knew they had severe disease, and knew they were not treated or “fixed.” This could increase their anxiety favor their conversion from asymptomatic to symptomatic patients—largely, because they knew they had severe disease and were unfixed. 
+
+ii) medical staff also knew these patients were not “fixed” and thereby increasing theirprobability of attributing any symptoms, cardiac or not, to their underlying aortic stenosis 
+
+iii) early surgery group knew they were “fixed” and would be less likely to consult for any symptoms cardiac or not 
+
+iv) similarly medical staff of the early TAVR patients knowing they were “fixed” would be less likely to attribute any symptoms to heart disease 
+:::
+
+Importantly, all 4 mechanisms would lead to an over-estimate of TAVR benefit in reducing hospitalizations
+
+## TAVR effect vs unblinding effect {.center}
+
+Consider two Scenarios\ 
+
+Scenario 1 benefit of decrease hospitalization occurs immediately following randomization, e.g. in the first year, with no longer term benefits 
+
+Scenario 2 the benefit is present throughout the follow-up perhaps at a smaller initial rate but remains continuous, or perhaps even increases over time.  
+
+::: fragment
+Logic says Scenario 1 more likely for unblinding effect \     
+
+Logic says Scenario 2 is more likely for TAVR effect 
+:::
+::: fragment
+Landmark analysis compatible with Scenario 1 and therefore... 
+
+Opinion also supported by the lack of benefit for the more objective outcomes of death or stroke. 
+
+N.B. Further support comes from prior empirical evidence, see [here](https://pmc.ncbi.nlm.nih.gov/articles/PMC4939945/) and [here](https://pubmed.ncbi.nlm.nih.gov/7823387/), that lack of blinding exaggerates intervention effect estimates, especially in trials with subjective outcomes.
+:::
+
+## Article # 2 {.center}
+
+Recent [NEJM publication](https://www.nejm.org/doi/full/10.1056/NEJMoa2405922) - Colchicine in Acute Myocardial Infarction  
+\     
+\    
+[METHODS]{style="color:red"} In this multicenter trial with a 2-by-2 factorial design, we randomly assigned patients who had myocardial infarction to receive either colchicine or placebo and either
+spironolactone or placebo. The results of the colchicine trial are reported here. The
+primary efficacy outcome was a composite of death from cardiovascular causes,
+recurrent myocardial infarction, stroke, or unplanned ischemia-driven coronary
+revascularization, evaluated in a time-to-event analysis. C-reactive protein was
+measured at 3 months in a subgroup of patients, and safety was also assessed. 
+
+[CONCLUSIONS]{style="color:red"} Among patients who had myocardial infarction, treatment with colchicine, when
+started soon after myocardial infarction and continued for a median of 3 years,
+did not reduce the incidence of the composite primary outcome (death from cardiovascular
+causes, recurrent myocardial infarction, stroke, or unplanned ischemiadriven
+coronary revascularization). (Funded by the Canadian Institutes of Health
+Research and others; CLEAR ClinicalTrials.gov number, NCT03048825.)
+
+## Results {.center}
+
+![](images/clear_results.png){width=80% fig-align="centered"}
+
+
+## Interpretation {.center}
+
+[NEJM CONCLUSIONS]{style="color:red"} Among patients who had myocardial infarction, treatment with colchicine, when started soon after myocardial infarction and continued for a median of 3 years, did not reduce the incidence of the composite primary outcome (death from cardiovascular causes, recurrent myocardial infarction, stroke, or unplanned ischemia driven coronary revascularization).
+\     
+\    
+
+[PI to the press]{style="color:red"} “[I was a believer in colchicine, but after CLEAR I decided to stop it in my parent”](https://www.medpagetoday.com/meetingcoverage/tct/112644?xid=nl_mpt_Cardiology_update_2024-11-01&mh=5ea0ef63b494fbd59d59b80f4d7177fa&zdee=gAAAAABm4utWmSHJnY-b0PoghpwIdJ2Z5bp7pHCJbHd4lnSWdd-TcQH64qhAqr5vStSuTwshVLoWZmIfruyxrtdHQaON6GGWin0MsBBlzSgmQd4CbqGcFWQ=&utm_source=Sailthru&utm_medium=email&utm_campaign=Automated%2520Specialty%2520Update%2520Cardiology%2520BiWeekly%2520FRIDAY%25202024-11-01&utm_term=NL_Spec_Cardiology_Update_Active)\   
+\    
+\    
+
+
+[Questions]{style="color:red"}\     
+1. Why was he believer? (because of COLCOT?)\     
+2. This belief presumably wasn’t universally shared or the necessary equipoise would not have been present to proceed with the CLEAR trial
+
+## COLCOT - Another NEJM publication {.center}
+
+[Efficacy and Safety of Low-Dose Colchicine after Myocardial Infarction](https://www.nejm.org/doi/full/10.1056/NEJMoa1912388)
+
+![](images/nejm_colcot.png){width=50% fig-align="centered"}
+
+[NEJM CONCLUSIONS]{style="color:red"} Among patients with a recent myocardial infarction, colchicine led to a significantly lower risk of ischemic cardiovascular events than placebo.
+
+## How to reconcile? {.center}
+Do you just ignore the previous RCT of 4700 subjects?
+
+## How to reconcile? {.center}
+Better might be to combine or borrow information between the studies\   
+
+::::: columns
+::: {.column width="50%"}
+CLEAR
+![](images/clear_vague.png)
+:::
+
+::: {.column width="50%"}
+COLCOT
+![](images/colcot_vague.png)
+:::
+:::::
+
+## How to reconcile? {.center}
+
+COMBINED
+![](images/clear_colcot.png){fig-align="centered" width=90%}
+
+## How to be a good critic of published article {.center}
+
+- be a critical reader\
+- show your critique to be "tenable"\  
+- remembe

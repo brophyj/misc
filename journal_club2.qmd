@@ -1,0 +1,576 @@
+---
+title: "Journal Club"
+author: "Jay Brophy MD PhD"
+institute: "Departments of Medicine, Epidemiology and Biostatistics, McGill University"
+date: "2025/04/26 (updated: `r Sys.Date()`)"
+format: 
+  revealjs:
+    theme: [simple, custom.scss]
+    slide-number: true
+    footer: "Academic half day - journal club"
+    echo: true
+    logo: mcgill_logo.png
+    scrollable: true
+    self-contained: true
+    default-slide-attributes:
+      data-vertical-align: middle
+      data-align: center
+  pdf:
+    documentclass: beamer
+  html:
+    theme: united
+    css: custom.scss
+editor: source 
+bibliography: bib.bib
+---
+
+```{r setup, echo=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  eval = TRUE,
+  fig.align = "center",
+  fig.asp = 0.618,
+  fig.retina = 3,
+  fig.width = 6,
+  fig.height = 6,
+  message = FALSE,
+  warning = FALSE,
+  dev = "svg",
+  out.width = "80%")
+
+# Load required libraries
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(ggthemes)
+library(knitr)
+
+setwd("~/Documents/cardiology/lectures/2025/cardiology")
+```
+
+## STRIDE Trial Overview {.center}
+
+STRIDE was a double-blind, randomised, placebo-controlled trial done at 112 outpatient clinical trial sites in 20 countries in North America, Asia, and Europe. Participants were aged 18 years and older, with type 2 diabetes and peripheral artery disease with intermittent claudication.\
+
+Participants were randomly assigned (1:1) using an interactive web response system to receive subcutaneous semaglutide 1·0 mg once per week for 52 weeks or placebo.  
+
+The primary endpoint was the ratio to baseline of the maximum walking distance at week 52 measured on a constant load treadmill in the full analysis set.
+
+------------------------------------------------------------------------
+
+## What are the results of the trial? {.center}
+
+
+```{r echo=FALSE, eval=FALSE}
+## Simulate Data Based on STRIDE Summary and produces Bayesian Posterior
+# uses the faulty change of score analysis
+set.seed(42)
+
+# Sample size per group
+N <- 396
+
+# Simulate baseline walking distances (similar between groups)
+baseline <- c(rnorm(N, mean = 185, sd = 50), rnorm(N, mean = 185, sd = 50))
+
+# Group assignment: 0 = Placebo, 1 = Semaglutide
+group <- rep(c(0, 1), each = N)
+
+# Simulated treatment effect (true difference ~40 m), with noise
+true_effect <- 19
+noise <- rnorm(2 * N, mean = 0, sd = 60)
+followup <- baseline + group * true_effect + noise
+
+# Stan data list
+data_list <- list(
+  N = 2 * N,
+  y = followup,
+  x_baseline = baseline,
+  x_group = group
+)
+
+## Stan Model Code
+stan_code <- "
+data {
+  int<lower=0> N;
+  vector[N] y;
+  vector[N] x_baseline;
+  vector[N] x_group;
+}
+parameters {
+  real alpha;
+  real beta_baseline;
+  real beta_group;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta_baseline * x_baseline + beta_group * x_group, sigma);
+}
+generated quantities {
+  real adj_diff = beta_group;
+  real prob_gt_20 = normal_cdf(adj_diff - 20 | 0, sigma);
+}
+"
+
+# Write Stan code to file
+stan_file <- write_stan_file(stan_code)
+
+## Fit Model
+model <- cmdstan_model(stan_file)
+fit <- model$sample(data = data_list, seed = 123, chains = 4, iter_warmup = 1000, iter_sampling = 2000, refresh = 0)
+
+## Posterior Summary
+posterior_draws <- fit$draws(c("adj_diff", "prob_gt_20"))
+summary_df <- summarise_draws(posterior_draws)
+summary_df
+
+## Posterior Probability of Clinically Meaningful Benefit (Δ \> 20 m)
+adj_diff_draws <- as_draws_df(posterior_draws)$adj_diff
+prob_gt_20 <- mean(adj_diff_draws > 20)
+cat(sprintf("Posterior probability that treatment effect > 20m: %.1f%%\n", prob_gt_20 * 100))
+
+# Visualization with `bayesplot`
+library(bayesplot)
+library(posterior)
+
+# Convert to matrix and extract draws
+draws_matrix <- as_draws_matrix(posterior_draws)
+adj_diff_draws <- as_draws_df(posterior_draws)$adj_diff
+prob_gt_20 <- mean(adj_diff_draws > 20)
+
+# Area plot
+mcmc_areas(draws_matrix, pars = "adj_diff", prob = 0.95) +
+  geom_vline(xintercept = 20, linetype = "dashed", color = "red") +
+  ggtitle("Posterior of Adjusted Treatment Effect (Δ)") +
+  labs(title = "Posterior of Clinically Meaningful Treatment Effect",
+      subtitle = paste0("Red dashed line = clinically meaningful threshold (20 m)\n",
+                      "P(Δ > 20 m) = ", round(prob_gt_20, 3))) +
+  theme_bw()
+
+# Save the plot
+ggsave("STRIDE_result.png", width = 8, height = 5)
+
+# Histogram with overlayed probability annotation
+mcmc_hist(draws_matrix, pars = "adj_diff") +
+  geom_vline(xintercept = 20, linetype = "dashed", color = "red") +
+  annotate("text", x = 60, y = 0.04, label = paste0("P(Δ > 20 m) = ", round(prob_gt_20, 3)),
+           color = "darkblue", size = 5) +
+  ggtitle("Posterior Distribution of Treatment Effect")
+
+
+ 
+```
+
+
+
+![](stride_t2.png)
+
+::: fragment
+```{r}
+## Simulate STRIDE-like Data
+
+set.seed(42)
+n <- 396
+
+baseline_sema <- rgamma(n, shape = 2, scale = 92)
+baseline_placebo <- rgamma(n, shape = 2, scale = 92)
+ratio <- c(Semaglutide = 1.21, Placebo = 1.08)
+followup_sema <- baseline_sema * ratio['Semaglutide'] + rnorm(n, 0, 30)
+followup_placebo <- baseline_placebo * ratio['Placebo'] + rnorm(n, 0, 30)
+
+df <- tibble(
+  group = rep(c("Semaglutide", "Placebo"), each = n),
+  baseline = c(baseline_sema, baseline_placebo),
+  followup = c(followup_sema, followup_placebo)
+) %>%
+  mutate(change = followup - baseline,
+         treat = ifelse(group == "Semaglutide", 1, 0))
+
+
+## Naive Frequentist Analysis
+
+mean_change <- df %>% group_by(group) %>% summarise(mean = mean(change))
+mean_diff <- diff(mean_change$mean)
+pval <- t.test(change ~ group, data = df)$p.value
+mean_change
+mean_diff
+pval
+
+
+```
+
+
+```{r echo=FALSE, eval=FALSE}
+# Setup
+  
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+
+## Frequentist ANCOVA
+
+ancova <- lm(followup ~ treat + baseline, data = df)
+summary(ancova)
+
+## Bayesian ANCOVA
+
+stan_code <- "
+data {
+  int<lower=0> N;
+  vector[N] y;
+  vector[N] x_baseline;
+  vector[N] x_group;
+}
+parameters {
+  real alpha;
+  real beta_baseline;
+  real beta_group;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta_baseline * x_baseline + beta_group * x_group, sigma);
+}
+generated quantities {
+  real adj_diff = beta_group;
+  real prob_gt_20 = normal_cdf(adj_diff - 20 | 0, sigma);
+}
+"
+
+file_path <- write_stan_file(stan_code)
+model <- cmdstan_model(file_path)
+fit <- model$sample(
+  data = list(
+    N = nrow(df),
+    y = df$followup,
+    x_baseline = df$baseline,
+    x_group = df$treat
+  ),
+  seed = 123,
+  chains = 4,
+  iter_sampling = 2000,
+  iter_warmup = 1000,
+  refresh = 0
+)
+
+
+## Posterior Summary and Visualization
+
+
+draws <- fit$draws(c("adj_diff"))
+adj_diff_draws <- as_draws_df(draws)$adj_diff
+prob_gt_20 <- mean(adj_diff_draws > 20)
+summary_stats <- summarise_draws(draws)
+summary_stats
+
+
+mcmc_areas(as_draws_matrix(draws), pars = "adj_diff", prob = 0.95) +
+  geom_vline(xintercept = 20, linetype = "dashed", color = "red") +
+  ggtitle("Posterior of Adjusted Treatment Effect") +
+  labs(subtitle = paste0("Red dashed line = clinically meaningful threshold (20 m), P(Δ > 20) = ", round(prob_gt_20, 3))) +
+  theme_bw()
+ggsave("output/STRIDE_posterior_adjusted_effect.png", width = 8, height = 5)
+
+
+```
+
+:::
+
+------------------------------------------------------------------------
+
+## Are the results clinically meaningful? {.center}
+
+![](STRIDE_result.png)
+
+------------------------------------------------------------------------
+
+## Risk of bias assessment - what interests us today {.center}
+
+Example RoB2.0 tool for randomized controlled trials
+
+```{r echo=TRUE}
+library(robvis)
+rob_summary(data_rob2, tool = "ROB2")
+```
+
+------------------------------------------------------------------------
+
+## Risk of bias assessment - what interests us today {.center}
+
+Example RoB2.0 tool for randomized controlled trials  Traffic lights format
+
+```{r echo=TRUE}
+rob_traffic_light(data_rob2[1:3,], tool = "ROB2")
+```
+
+------------------------------------------------------------------------
+
+## Why Change Scores Can Be Misleading {.center}
+
+-   [Regression to the mean (RTM)]{style="color:red; font-weight:bold; font-size:1.2em;"} occurs when participants with unusually low (or high) baseline values tend to shift toward the average on repeated measurements — even without any intervention.
+-   If the treatment group has low observed baseline values due to measurement noise, their follow-up scores may appear to improve more than they actually did.
+-   Altman (2001)[@altman2001] and others have shown that comparing change scores or ratios to baseline across groups [introduces bias]{style="color:red; font-weight:bold; font-size:1.2em;"} when baseline values are imbalanced or noisy [@altman2001].
+-   The correct approach is ANCOVA model the follow-up outcome and adjust for the baseline as a covariate.
+-   This preserves randomization and avoids overestimating treatment effects.
+
+------------------------------------------------------------------------
+
+## Simulating RTRM that Inflates the Effect {.center}
+
+-   The following simulation mimics the **STRIDE trial** [@stride2024], which used a **6-minute walk test** to measure the effect of semaglutide on walking distance \
+-   The **true treatment effect** is **10 m** \
+-   The **observed baseline** is **biased** due to measurement error \
+-   The **observed follow-up** is the true baseline plus the treatment effect plus noise \
+-   The **naive analysis** (change score) will **overestimate** the treatment effect \
+-   The **correct analysis** (ANCOVA) will adjust for the baseline and provide a more accurate estimate of the treatment effect 
+
+```{r }
+set.seed(2027)
+n <- 396
+baseline_true <- rnorm(2 * n, mean = 185, sd = 20)
+baseline_obs <- c(
+  baseline_true[1:n] + rnorm(n, mean = -10, sd = 20),
+  baseline_true[(n+1):(2*n)] + rnorm(n, mean = 0, sd = 20)
+)
+group <- rep(c("Semaglutide", "Placebo"), each = n)
+treat <- ifelse(group == "Semaglutide", 1, 0)
+true_effect <- 10
+followup <- baseline_true + true_effect * treat + rnorm(2 * n, mean = 0, sd = 20)
+change <- followup - baseline_obs
+df <- tibble(group, treat, baseline_true, baseline_obs, followup, change)
+df
+
+unbiased_summary <- df %>%
+  group_by(group) %>%
+  summarise(mean_change = mean(change), .groups = "drop")
+
+unbiased_diff <- diff(unbiased_summary$mean_change)  # Semaglutide - Placebo
+```
+
+## Published analyses {.center}
+
+Naive Analysis (Wrong)  
+
+```{r}
+mean_diff_naive <- with(df, mean(change[group == "Semaglutide"]) - mean(change[group == "Placebo"]))
+p_naive <- t.test(change ~ group, data = df)$p.value
+mean_diff_naive
+p_naive
+```
+
+Correct Analysis: ANCOVA  
+
+```{r}
+ancova <- lm(followup ~ treat + baseline_obs, data = df)
+summary(ancova)
+```
+
+------------------------------------------------------------------------
+
+## Visualization: Inflation of Treatment Effect {.center}
+
+::::: columns
+::: {.column width="50%"}
+```{r fig.width=8, fig.asp=0.8}
+ggplot(df, aes(x = group, y = change, fill = group)) +
+  geom_boxplot(alpha = 0.6) +
+  geom_hline(yintercept = true_effect, linetype = "dashed", color = "black") +
+  theme_minimal() +
+  labs(title = "Naive (Change Score) Analysis",
+       subtitle = "Dashed line = true treatment effect",
+       y = "Change from Observed Baseline")
+```
+:::
+
+::: {.column width="50%"}
+
+```{r fig.width=8, fig.asp=0.8}
+ggplot(df, aes(x = baseline_obs, y = followup, color = group)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal() +
+  labs(title = "ANCOVA Adjusted Fit", subtitle = "Corrects for biased baselines")
+```
+
+:::
+:::
+
+------------------------------------------------------------------------
+
+## Posterior (Bayesian) Summary {.center}
+
+```{r echo=FALSE, cache=TRUE}
+## Bayesian ANCOVA {.center}
+stan_code <- "
+data {
+  int<lower=0> N;
+  vector[N] y;
+  vector[N] x_baseline;
+  vector[N] x_group;
+}
+parameters {
+  real alpha;
+  real beta_baseline;
+  real beta_group;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta_baseline * x_baseline + beta_group * x_group, sigma);
+}
+generated quantities {
+  real adj_diff = beta_group;
+  real prob_gt_10 = normal_cdf(adj_diff - 10 | 0, sigma);
+}
+"
+
+file_path <- write_stan_file(stan_code)
+model <- cmdstan_model(file_path)
+fit <- model$sample(
+  data = list(
+    N = nrow(df),
+    y = df$followup,
+    x_baseline = df$baseline_obs,
+    x_group = df$treat
+  ),
+  seed = 123,
+  chains = 4,
+  iter_sampling = 2000,
+  iter_warmup = 1000,
+  refresh = 0
+)
+
+
+draws <- fit$draws("adj_diff")
+adj_diff_draws <- as_draws_df(draws)$adj_diff
+prob_gt_10 <- mean(adj_diff_draws > 10)
+summarise_draws(draws)
+```
+
+------------------------------------------------------------------------
+
+## Posterior (Bayesian) Visualization {.center}
+
+```{r}
+mcmc_areas(as_draws_matrix(draws), pars = "adj_diff", prob = 0.95) +
+  geom_vline(xintercept = 10, linetype = "dashed", color = "red") +
+  geom_vline(xintercept = 20, linetype = "dashed", color = "blue") +
+  labs(title = "Posterior of Adjusted Treatment Effect",
+       subtitle = paste("P(Δ > 10 m) =", round(prob_gt_10, 3)))
+```
+
+------------------------------------------------------------------------
+
+## Selection Bias in STRIDE Trial {.center}
+
+-   Table 2 in STRIDE shows **only 338/396 (85%)** in the semaglutide group and **345/396 (87%)** in the placebo group were analyzed for the primary outcome [@stride2024].
+-   This means **15% of patients had missing outcome data**.
+-   If missingness is **not random** (e.g., related to tolerability or worsening condition), the observed effect size is biased.
+-   This is particularly concerning given the subjective and effort-based nature of the walking test.
+
+## Sensitivity Simulation: Inflated Treatment from Selective Missingness {.center}
+
+Suppose we randomly remove 15% of the data, and the missingness is biased toward the treatment group\    
+For example if the top 15% of placebo performers were lost and the poorest 15% of treatment group\   
+This will inflate the treatment effect.
+```{r}
+set.seed(2028)
+df_missing <- df %>%
+  group_by(group) %>%
+  arrange(group, if_else(group == "Placebo", change, -change)) %>%
+  slice(1:round(0.85 * n())) %>%
+  ungroup()
+
+biased_summary <- df_missing %>%
+  group_by(group) %>%
+  summarise(mean_change = mean(change), .groups = "drop")
+
+biased_diff <- diff(biased_summary$mean_change)  # Semaglutide - Placebo
+
+unbiased_summary <- df %>%
+  group_by(group) %>%
+  summarise(mean_change = mean(change), .groups = "drop")
+
+unbiased_diff <- diff(unbiased_summary$mean_change)  # Semaglutide - Placebo
+
+paste0("Remember the unbiased (but faulty) analysis was: ", round(unbiased_diff,1))
+paste0("The biased analysis was: ", round(biased_diff,1))
+```
+
+------------------------------------------------------------------------
+
+## STRIDE Risk of Bias {.center}
+
+```{r warning=FALSE}
+library(robvis)
+
+temp <- data.frame(
+  Study = "STRIDE",
+  "Domain 1" = "Low",
+  "Domain 2" = "Low",
+  "Domain 3" = "High",
+  "Domain 4" = "High",
+  "Domain 5" = "Some concerns",
+  Overall = "High"
+)
+
+rob_traffic_light(temp, tool = "ROB2")
+
+```
+
+---
+
+## Final Discussion Slide: Key Take-Home Points {.center}
+
+-   Naive change score analyses are vulnerable to regression to the mean, especially when measurement error exists.
+-   The STRIDE trial's analysis may overestimate the treatment benefit due to this bias
+-   The trial also suffers from \~15% missing data, without clear methods to handle this — risking **selection bias**.
+-   ANCOVA and Bayesian ANCOVA correct for these issues and offer a more reliable estimate of treatment effect.
+-   Clinicians should be wary of simple pre-post comparisons and always ask: “Was the analysis adjusted for baseline?”
+-   Sponsored trial also vulnerable to over-estimation of effect sizes
+-   Unblinded trials are particularly vulnerable to bias with over-estimation of effect sizes
+
+------------------------------------------------------------------------
+
+## DapaTAV Trial Overview {.center}
+
+<span style="color: red; font-size: 1.5em; font-weight: bold;">Conclusion: </span> Trial of SGLT-2 inhibitors in 1257 TAVI patients undergoing TAVI reported significantly lower incidence of death from any cause or worsening of heart failure than standard care alone.
+
+<span style="color: red; font-size: 1.5em; font-weight: bold;">Justification: </span> SGLT2i reduce the HF risk of heart-failure but valvular patients have been excluded from randomized trials.
+
+---
+
+## DapaTAV Trial Results {.center}
+
+::: columns
+::: {.column width="50%" style="overflow-y: auto; max-height: 80vh;"}
+
+```{r}
+include_graphics("DAPATAVI2.png", dpi = 300)
+
+```
+:::
+::: {.column width="50%" style="overflow-y: auto; max-height: 80vh;"}
+```{r}
+include_graphics("DAPATAVI3.png", dpi = 300)
+
+```
+:::
+:::
+
+---
+
+## Issues {.center}
+
+- Was the justification true?\    
+- Was the trial ethical (DapaHF and DELIVER already established benefit)?\   
+- Were effects exaggerated (no placebo and sx 2 SGLT2i prevented blinding)?\    
+- Timing of events?
+
+---
+
+## References {.center}
+

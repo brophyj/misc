@@ -1,0 +1,225 @@
+---
+title: "Journal Club"
+author: "Jay Brophy MD PhD"
+institute: "Departments of Medicine, Epidemiology and Biostatistics, McGill University"
+date: "2025/05/21 (updated: `r Sys.Date()`)"
+format: 
+  revealjs:
+    theme: [simple, custom.scss]
+    slide-number: true
+    footer: "Academic half day - journal club"
+    echo: true
+    logo: mcgill_logo.png
+    scrollable: true
+    self-contained: true
+    default-slide-attributes:
+      data-vertical-align: middle
+      data-align: center
+  pdf:
+    documentclass: beamer
+  html:
+    theme: united
+    css: custom.scss
+editor: visual 
+bibliography: bib.bib
+---
+
+
+
+```{r setup, echo=FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  eval = TRUE,
+  fig.align = "center",
+  fig.asp = 0.618,
+  fig.retina = 3,
+  fig.width = 6,
+  fig.height = 6,
+  message = FALSE,
+  warning = FALSE,
+  dev = "svg",
+  out.width = "80%")
+
+library(cmdstanr)
+library(posterior)
+library(bayesplot)
+library(ggplot2)
+library(dplyr)
+library(tibble)
+library(ggthemes)
+```
+
+
+## Stride Trial Overview {.center}
+
+STRIDE was a double-blind, randomised, placebo-controlled trial done at 112 outpatient clinical trial sites in 20 countries in North America, Asia, and Europe. Participants were aged 18 years and older, with type 2 diabetes and peripheral artery disease with intermittent claudication.\    
+
+Participants were randomly assigned (1:1) using an interactive web response system to receive subcutaneous semaglutide 1·0 mg once per week for 52 weeks or placebo. \    
+
+The primary endpoint was the ratio to baseline of the maximum walking distance
+at week 52 measured on a constant load treadmill in the full analysis set. 
+
+## Why Change Scores Can Be Misleading {.center}
+
+- <span style="color:red; font-weight:bold; font-size:1.5em;">Regression to the mean</span> occurs when participants with unusually low (or high) baseline values tend to shift toward the average on repeated measurements — even without any intervention.
+- If the treatment group has low observed baseline values due to measurement noise, their follow-up scores may appear to improve more than they actually did.
+- Altman (2001)[@altman2001] and others have shown that <span style="color:red; font-weight:bold; font-size:1.5em;">comparing change scores or ratios to baseline across groups** introduces bias </span> when baseline values are imbalanced or noisy [@altman2001].
+- The correct approach is **ANCOVA**: model the follow-up outcome and adjust for the baseline as a covariate.
+- This **preserves randomization** and avoids overestimating treatment effects.
+
+---
+
+## Simulating Regression to the Mean that Inflates the Effect {.center}
+- The following simulation mimics the **STRIDE trial** [@stride2024], which used a **6-minute walk test** to measure the effect of semaglutide on walking distance\    
+- The **true treatment effect** is **10 m**\    
+- The **observed baseline** is **biased** due to measurement error\     
+- The **observed follow-up** is the true baseline plus the treatment effect plus noise\    
+- The **naive analysis** (change score) will **overestimate** the treatment effect\     
+- The **correct analysis** (ANCOVA) will adjust for the baseline and provide a more accurate estimate of the treatment effect\     
+
+```{r echo=TRUE}
+set.seed(2027)
+n <- 396
+baseline_true <- rnorm(2 * n, mean = 185, sd = 20)
+baseline_obs <- c(
+  baseline_true[1:n] + rnorm(n, mean = -10, sd = 20),
+  baseline_true[(n+1):(2*n)] + rnorm(n, mean = 0, sd = 20)
+)
+group <- rep(c("Semaglutide", "Placebo"), each = n)
+treat <- ifelse(group == "Semaglutide", 1, 0)
+true_effect <- 10
+followup <- baseline_true + true_effect * treat + rnorm(2 * n, mean = 0, sd = 20)
+change <- followup - baseline_obs
+df <- tibble(group, treat, baseline_true, baseline_obs, followup, change)
+```
+
+## Published analyses {.center}
+
+Naive Analysis (Wrong) \     
+```{r}
+mean_diff_naive <- with(df, mean(change[group == "Semaglutide"]) - mean(change[group == "Placebo"]))
+p_naive <- t.test(change ~ group, data = df)$p.value
+mean_diff_naive
+p_naive
+```
+
+Correct Analysis: ANCOVA \   
+
+```{r}
+ancova <- lm(followup ~ treat + baseline_obs, data = df)
+summary(ancova)
+```
+
+## Visualization: Inflation of Treatment Effect {.center}
+::: .columns
+::: {.column width="50%"}
+```{r}
+ggplot(df, aes(x = group, y = change, fill = group)) +
+  geom_boxplot(alpha = 0.6) +
+  geom_hline(yintercept = true_effect, linetype = "dashed", color = "black") +
+  theme_minimal() +
+  labs(title = "Naive (Change Score) Analysis",
+       subtitle = "Dashed line = true treatment effect",
+       y = "Change from Observed Baseline")
+```
+::: 
+::: {.column width="50%"}
+```{r}
+ggplot(df, aes(x = baseline_obs, y = followup, color = group)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_minimal() +
+  labs(title = "ANCOVA Adjusted Fit", subtitle = "Corrects for biased baselines")
+```
+:::
+:::
+
+
+---
+
+## Posterior Summary and Visualization {.center}
+
+```{r}
+## Bayesian ANCOVA {.center}
+stan_code <- "
+data {
+  int<lower=0> N;
+  vector[N] y;
+  vector[N] x_baseline;
+  vector[N] x_group;
+}
+parameters {
+  real alpha;
+  real beta_baseline;
+  real beta_group;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta_baseline * x_baseline + beta_group * x_group, sigma);
+}
+generated quantities {
+  real adj_diff = beta_group;
+  real prob_gt_10 = normal_cdf(adj_diff - 10 | 0, sigma);
+}
+"
+
+file_path <- write_stan_file(stan_code)
+model <- cmdstan_model(file_path)
+fit <- model$sample(
+  data = list(
+    N = nrow(df),
+    y = df$followup,
+    x_baseline = df$baseline_obs,
+    x_group = df$treat
+  ),
+  seed = 123,
+  chains = 4,
+  iter_sampling = 2000,
+  iter_warmup = 1000,
+  refresh = 0
+)
+
+
+draws <- fit$draws("adj_diff")
+adj_diff_draws <- as_draws_df(draws)$adj_diff
+prob_gt_10 <- mean(adj_diff_draws > 10)
+summarise_draws(draws)
+```
+
+```{r}
+mcmc_areas(as_draws_matrix(draws), pars = "adj_diff", prob = 0.95) +
+  geom_vline(xintercept = 10, linetype = "dashed", color = "red") +
+  labs(title = "Posterior of Adjusted Treatment Effect",
+       subtitle = paste("P(Δ > 10 m) =", round(prob_gt_10, 3)))
+```
+
+## Selection Bias in STRIDE Trial {.center}
+
+- Table 2 in STRIDE shows **only 338/396 (85%)** in the semaglutide group and **345/396 (87%)** in the placebo group were analyzed for the primary outcome [@stride2024].
+- This means **15% of patients had missing outcome data**.
+- If missingness is **not random** (e.g., related to tolerability or worsening condition), the observed effect size is biased.
+- This is particularly concerning given the subjective and effort-based nature of the walking test.
+
+## Corrected Sensitivity Simulation: Inflated Treatment from Selective Missingness {.center}
+
+```{r}
+set.seed(2028)
+df_missing <- df %>%
+  group_by(group) %>%
+  arrange(group, if_else(group == "Semaglutide", change, -change)) %>%
+  slice(1:round(0.85*n())) %>%
+  ungroup()
+
+mean_diff_bias <- with(df_missing, mean(change[group == "Semaglutide"]) - mean(change[group == "Placebo"]))
+mean_diff_bias
+```
+
+## Final Discussion Slide: Key Take-Home Points {.center}
+
+- Naive change score analyses are **vulnerable to regression to the mean**, especially when measurement error exists.
+- The STRIDE trial's analysis likely **overestimated** the treatment benefit due to this bias.
+- The trial also suffers from **~15% missing data**, without clear methods to handle this — risking **selection bias**.
+- **ANCOVA and Bayesian ANCOVA** correct for these issues and offer a more reliable estimate of treatment effect.
+- Clinicians should be wary of **simple pre-post comparisons** and always ask: “Was the analysis adjusted for baseline?”
+- Unblinded trials are particularly vulnerable to bias with over-estimation of effect sizes
+- Sponsored trial also associated with over-estimation of effect sizes
